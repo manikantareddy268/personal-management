@@ -27,6 +27,27 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
+// FoodLog model
+const foodLogSchema = new mongoose.Schema({
+  userEmail: String,
+  date: { type: Date, default: Date.now },
+  meal: String,
+  calories: Number,
+  description: String,
+});
+const FoodLog = mongoose.model('FoodLog', foodLogSchema);
+
+// WorkoutLog model
+const workoutLogSchema = new mongoose.Schema({
+  userEmail: String,
+  date: { type: Date, default: Date.now },
+  type: String,
+  duration: Number, // in minutes
+  caloriesBurned: Number,
+  notes: String,
+});
+const WorkoutLog = mongoose.model('WorkoutLog', workoutLogSchema);
+
 app.get('/', (req, res) => {
   res.send('Backend server is running!');
 });
@@ -89,6 +110,134 @@ app.post('/api/reset-password', async (req, res) => {
     res.json({ message: 'Password reset successful.' });
   } catch (err) {
     res.status(500).json({ message: 'Server error.' });
+  }
+});
+
+// JWT authentication middleware
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'No token provided' });
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ message: 'Invalid token' });
+    req.user = user;
+    next();
+  });
+}
+
+// Protected user profile endpoint
+app.get('/api/profile', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findOne({ email: req.user.email });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json({ name: user.name, email: user.email });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// --- FoodLog Endpoints ---
+// Create food log
+app.post('/api/food', authenticateToken, async (req, res) => {
+  try {
+    const { meal, calories, description, date } = req.body;
+    const log = new FoodLog({
+      userEmail: req.user.email,
+      meal,
+      calories,
+      description,
+      date: date ? new Date(date) : undefined,
+    });
+    await log.save();
+    res.status(201).json(log);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+// Get all food logs for user
+app.get('/api/food', authenticateToken, async (req, res) => {
+  try {
+    const logs = await FoodLog.find({ userEmail: req.user.email }).sort({ date: -1 });
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+// Update food log
+app.put('/api/food/:id', authenticateToken, async (req, res) => {
+  try {
+    const log = await FoodLog.findOneAndUpdate(
+      { _id: req.params.id, userEmail: req.user.email },
+      req.body,
+      { new: true }
+    );
+    if (!log) return res.status(404).json({ message: 'Log not found' });
+    res.json(log);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+// Delete food log
+app.delete('/api/food/:id', authenticateToken, async (req, res) => {
+  try {
+    const result = await FoodLog.deleteOne({ _id: req.params.id, userEmail: req.user.email });
+    if (result.deletedCount === 0) return res.status(404).json({ message: 'Log not found' });
+    res.json({ message: 'Log deleted' });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// --- WorkoutLog Endpoints ---
+// Create workout log
+app.post('/api/workout', authenticateToken, async (req, res) => {
+  try {
+    const { type, duration, caloriesBurned, notes, date } = req.body;
+    const log = new WorkoutLog({
+      userEmail: req.user.email,
+      type,
+      duration,
+      caloriesBurned,
+      notes,
+      date: date ? new Date(date) : undefined,
+    });
+    await log.save();
+    res.status(201).json(log);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+// Get all workout logs for user
+app.get('/api/workout', authenticateToken, async (req, res) => {
+  try {
+    const logs = await WorkoutLog.find({ userEmail: req.user.email }).sort({ date: -1 });
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+// Update workout log
+app.put('/api/workout/:id', authenticateToken, async (req, res) => {
+  try {
+    const log = await WorkoutLog.findOneAndUpdate(
+      { _id: req.params.id, userEmail: req.user.email },
+      req.body,
+      { new: true }
+    );
+    if (!log) return res.status(404).json({ message: 'Log not found' });
+    res.json(log);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+// Delete workout log
+app.delete('/api/workout/:id', authenticateToken, async (req, res) => {
+  try {
+    const result = await WorkoutLog.deleteOne({ _id: req.params.id, userEmail: req.user.email });
+    if (result.deletedCount === 0) return res.status(404).json({ message: 'Log not found' });
+    res.json({ message: 'Log deleted' });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
