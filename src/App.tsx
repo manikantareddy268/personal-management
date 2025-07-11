@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Header from "./Header";
 import Footer from "./Footer";
 import FoodTracker from "./FoodTracker";
@@ -8,6 +8,24 @@ import Login from "./Login";
 import Signup from "./Signup";
 import ResetPassword from "./ResetPassword";
 import 'bootstrap/dist/css/bootstrap.min.css';
+import Fuse from 'fuse.js';
+
+const FOOD_CALORIES: Record<string, number> = {
+  rice: 130,
+  chicken: 165,
+  egg: 155,
+  bread: 265,
+  apple: 52,
+  banana: 89,
+  milk: 42,
+  paneer: 265,
+  dal: 116,
+  potato: 77,
+  // Add more as needed
+};
+
+const foodList = Object.keys(FOOD_CALORIES).map((name: string) => ({ name }));
+const fuse = new Fuse<{ name: string }>(foodList, { keys: ['name'], threshold: 0.4 });
 
 const API_URL = 'http://localhost:4000/api';
 
@@ -21,10 +39,24 @@ const App: React.FC = () => {
   const [workoutLogs, setWorkoutLogs] = useState<any[]>([]);
 
   // Form state
-  const [foodForm, setFoodForm] = useState({ meal: '', calories: '', description: '', date: '' });
+  const [foodForm, setFoodForm] = useState({ meal: '', weight: '', calories: '', description: '', date: '' });
   const [editingFoodId, setEditingFoodId] = useState<string | null>(null);
   const [workoutForm, setWorkoutForm] = useState({ type: '', duration: '', caloriesBurned: '', notes: '', date: '' });
   const [editingWorkoutId, setEditingWorkoutId] = useState<string | null>(null);
+
+  // Autocomplete state
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const mealInputRef = useRef<HTMLInputElement>(null);
+  // Fuzzy meal suggestions
+  const mealSuggestions = foodForm.meal.trim() === ''
+    ? []
+    : fuse.search(foodForm.meal.trim().toLowerCase()).map((result: Fuse.FuseResult<{ name: string }>) => result.item.name);
+
+  // Calculate calories for food form
+  const caloriesPer100g = FOOD_CALORIES[foodForm.meal.trim().toLowerCase()] || 0;
+  const weight = Number(foodForm.weight);
+  const calculatedCalories = weight && caloriesPer100g ? Math.round((caloriesPer100g * weight) / 100) : 0;
+  const isKnownFood = !!FOOD_CALORIES[foodForm.meal.trim().toLowerCase()];
 
   // Check for JWT in localStorage on mount
   useEffect(() => {
@@ -78,8 +110,10 @@ const App: React.FC = () => {
     const method = editingFoodId ? 'PUT' : 'POST';
     const url = editingFoodId ? `${API_URL}/food/${editingFoodId}` : `${API_URL}/food`;
     const body = {
-      ...foodForm,
-      calories: Number(foodForm.calories),
+      meal: foodForm.meal,
+      weight: Number(foodForm.weight),
+      calories: isKnownFood ? calculatedCalories : Number(foodForm.calories),
+      description: foodForm.description,
       date: foodForm.date || undefined,
     };
     try {
@@ -89,7 +123,7 @@ const App: React.FC = () => {
         body: JSON.stringify(body)
       });
       if (res.ok) {
-        setFoodForm({ meal: '', calories: '', description: '', date: '' });
+        setFoodForm({ meal: '', weight: '', calories: '', description: '', date: '' });
         setEditingFoodId(null);
         fetchFoodLogs(token);
       }
@@ -100,7 +134,8 @@ const App: React.FC = () => {
   const handleEditFood = (log: any) => {
     setFoodForm({
       meal: log.meal,
-      calories: log.calories.toString(),
+      weight: log.weight ? log.weight.toString() : '',
+      calories: log.calories ? log.calories.toString() : '',
       description: log.description || '',
       date: log.date ? log.date.slice(0, 10) : '',
     });
@@ -243,21 +278,60 @@ const App: React.FC = () => {
         {section === 'food' && (
           <div>
             <h3>Food Logs</h3>
-            <form className="mb-4" onSubmit={handleFoodSubmit}>
-              <div className="row g-2 mb-2">
-                <div className="col-md-3"><input className="form-control" placeholder="Meal" value={foodForm.meal} onChange={e => setFoodForm(f => ({ ...f, meal: e.target.value }))} required /></div>
-                <div className="col-md-2"><input className="form-control" type="number" placeholder="Calories" value={foodForm.calories} onChange={e => setFoodForm(f => ({ ...f, calories: e.target.value }))} required /></div>
-                <div className="col-md-4"><input className="form-control" placeholder="Description" value={foodForm.description} onChange={e => setFoodForm(f => ({ ...f, description: e.target.value }))} /></div>
+            <form className="mb-4" onSubmit={handleFoodSubmit} autoComplete="off">
+              <div className="row g-2 mb-2 position-relative">
+                <div className="col-md-3 position-relative">
+                  <input
+                    className="form-control"
+                    placeholder="Meal (e.g. rice, chicken)"
+                    value={foodForm.meal}
+                    ref={mealInputRef}
+                    onChange={e => {
+                      setFoodForm(f => ({ ...f, meal: e.target.value }));
+                      setShowSuggestions(true);
+                    }}
+                    onFocus={() => setShowSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowSuggestions(false), 100)}
+                    required
+                  />
+                  {showSuggestions && mealSuggestions.length > 0 && (
+                    <ul className="list-group position-absolute w-100" style={{ zIndex: 10, top: '100%' }}>
+                      {mealSuggestions.map((s: string) => (
+                        <li
+                          key={s}
+                          className="list-group-item list-group-item-action"
+                          style={{ cursor: 'pointer' }}
+                          onMouseDown={() => {
+                            setFoodForm(f => ({ ...f, meal: s }));
+                            setShowSuggestions(false);
+                            mealInputRef.current?.blur();
+                          }}
+                        >
+                          {s}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="col-md-2"><input className="form-control" type="number" placeholder="Weight (g)" value={foodForm.weight} onChange={e => setFoodForm(f => ({ ...f, weight: e.target.value }))} required /></div>
+                <div className="col-md-2"><input className="form-control" placeholder="Description" value={foodForm.description} onChange={e => setFoodForm(f => ({ ...f, description: e.target.value }))} /></div>
                 <div className="col-md-2"><input className="form-control" type="date" value={foodForm.date} onChange={e => setFoodForm(f => ({ ...f, date: e.target.value }))} /></div>
+                <div className="col-md-2 d-flex align-items-center">
+                  {isKnownFood ? (
+                    <span className="ms-2">Calories: <strong>{calculatedCalories}</strong></span>
+                  ) : (
+                    <input className="form-control" type="number" placeholder="Calories" value={foodForm.calories} onChange={e => setFoodForm(f => ({ ...f, calories: e.target.value }))} required />
+                  )}
+                </div>
                 <div className="col-md-1 d-grid"><button className="btn btn-success" type="submit">{editingFoodId ? 'Update' : 'Add'}</button></div>
               </div>
-              {editingFoodId && <div className="mb-2"><button className="btn btn-secondary btn-sm" type="button" onClick={() => { setEditingFoodId(null); setFoodForm({ meal: '', calories: '', description: '', date: '' }); }}>Cancel Edit</button></div>}
+              {editingFoodId && <div className="mb-2"><button className="btn btn-secondary btn-sm" type="button" onClick={() => { setEditingFoodId(null); setFoodForm({ meal: '', weight: '', calories: '', description: '', date: '' }); }}>Cancel Edit</button></div>}
             </form>
             <ul className="list-group mb-4">
               {foodLogs.map(log => (
                 <li key={log._id} className="list-group-item d-flex justify-content-between align-items-center">
                   <div>
-                    <strong>{log.meal}</strong> - {log.calories} cal - {log.description} <span className="text-muted">({new Date(log.date).toLocaleDateString()})</span>
+                    <strong>{log.meal}</strong> - {log.weight}g - {log.calories} cal - {log.description} <span className="text-muted">({new Date(log.date).toLocaleDateString()})</span>
                   </div>
                   <div>
                     <button className="btn btn-sm btn-primary me-2" onClick={() => handleEditFood(log)}>Edit</button>
