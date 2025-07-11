@@ -1,8 +1,8 @@
 import React from "react";
 
 const Footer: React.FC = () => (
-  <footer style={{ borderTop: '1px solid #ccc', padding: '1rem 0', marginTop: '2rem', textAlign: 'center', fontSize: '0.9rem', color: '#888' }}>
-    &copy; {new Date().getFullYear()} Food & Fitness Tracker
+  <footer className="border-top py-3 mt-4 text-center">
+    <span className="text-muted">&copy; {new Date().getFullYear()} Food & Fitness Tracker</span>
   </footer>
 );
 
