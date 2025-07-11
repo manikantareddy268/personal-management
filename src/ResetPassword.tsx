@@ -2,7 +2,7 @@ import React, { useState } from "react";
 
 interface ResetPasswordProps {
   onSwitch: (form: 'login') => void;
-  onReset: (email: string, newPassword: string) => boolean | void;
+  onReset: (email: string, newPassword: string) => Promise<boolean>;
 }
 
 const ResetPassword: React.FC<ResetPasswordProps> = ({ onSwitch, onReset }) => {
@@ -10,14 +10,14 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ onSwitch, onReset }) => {
   const [newPassword, setNewPassword] = useState("");
   const [error, setError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !newPassword) {
       setError("Please fill in all fields.");
       return;
     }
     setError("");
-    const result = onReset(email, newPassword);
+    const result = await onReset(email, newPassword);
     if (result === false) {
       setError("Email not found.");
     }

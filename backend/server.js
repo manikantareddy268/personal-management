@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const fs = require('fs');
+const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -10,25 +10,22 @@ app.use(cors());
 
 // Conditional JSON middleware
 app.use((request, response, next) => {
-  // Skip JSON middleware for the webhook endpoint
   if (request.originalUrl.startsWith('/api/payments/webhook')) {
-    return next(); // Bypass JSON parsing for this route
+    return next();
   }
-  // Apply JSON parsing to all other routes
   express.json()(request, response, next);
 });
 
-const USERS_FILE = './users.json';
 const JWT_SECRET = 'supersecretkey'; // In production, use env variable
 
-function readUsers() {
-  if (!fs.existsSync(USERS_FILE)) return [];
-  return JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
-}
+mongoose.connect('mongodb://localhost:27017/yourdbname');
 
-function writeUsers(users) {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-}
+const userSchema = new mongoose.Schema({
+  name: String,
+  email: { type: String, unique: true },
+  password: String,
+});
+const User = mongoose.model('User', userSchema);
 
 app.get('/', (req, res) => {
   res.send('Backend server is running!');
@@ -40,15 +37,18 @@ app.post('/api/register', async (req, res) => {
   if (!name || !email || !password) {
     return res.status(400).json({ message: 'All fields are required.' });
   }
-  const users = readUsers();
-  if (users.find(u => u.email === email)) {
-    return res.status(409).json({ message: 'Email already registered.' });
+  try {
+    const existing = await User.findOne({ email });
+    if (existing) {
+      return res.status(409).json({ message: 'Email already registered.' });
+    }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = new User({ name, email, password: hashedPassword });
+    await newUser.save();
+    res.status(201).json({ message: 'User registered successfully.' });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error.' });
   }
-  const hashedPassword = await bcrypt.hash(password, 10);
-  const newUser = { name, email, password: hashedPassword };
-  users.push(newUser);
-  writeUsers(users);
-  res.status(201).json({ message: 'User registered successfully.' });
 });
 
 // Login
@@ -57,17 +57,20 @@ app.post('/api/login', async (req, res) => {
   if (!email || !password) {
     return res.status(400).json({ message: 'Email and password are required.' });
   }
-  const users = readUsers();
-  const user = users.find(u => u.email === email);
-  if (!user) {
-    return res.status(401).json({ message: 'Invalid email or password.' });
+  try {
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid email or password.' });
+    }
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid email or password.' });
+    }
+    const token = jwt.sign({ name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '1h' });
+    res.json({ token, user: { name: user.name, email: user.email } });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error.' });
   }
-  const isMatch = await bcrypt.compare(password, user.password);
-  if (!isMatch) {
-    return res.status(401).json({ message: 'Invalid email or password.' });
-  }
-  const token = jwt.sign({ name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '1h' });
-  res.json({ token, user: { name: user.name, email: user.email } });
 });
 
 // Reset Password
@@ -76,17 +79,23 @@ app.post('/api/reset-password', async (req, res) => {
   if (!email || !newPassword) {
     return res.status(400).json({ message: 'Email and new password are required.' });
   }
-  const users = readUsers();
-  const idx = users.findIndex(u => u.email === email);
-  if (idx === -1) {
-    return res.status(404).json({ message: 'Email not found.' });
+  try {
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: 'Email not found.' });
+    }
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+    res.json({ message: 'Password reset successful.' });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error.' });
   }
-  users[idx].password = await bcrypt.hash(newPassword, 10);
-  writeUsers(users);
-  res.json({ message: 'Password reset successful.' });
 });
 
 const PORT = 4000;
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-}); 
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+module.exports = app; 

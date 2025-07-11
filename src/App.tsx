@@ -9,49 +9,78 @@ import Signup from "./Signup";
 import ResetPassword from "./ResetPassword";
 import 'bootstrap/dist/css/bootstrap.min.css';
 
+const API_URL = 'http://localhost:4000/api';
+
 const App: React.FC = () => {
   const [section, setSection] = useState<'food' | 'workout' | 'planner'>('food');
   const [authPage, setAuthPage] = useState<'login' | 'signup' | 'reset'>('login');
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
 
-  // In-memory user store for demo (replace with backend later)
-  const [users, setUsers] = useState<{ name: string; email: string; password: string }[]>([]);
+  // Check for JWT in localStorage on mount
+  React.useEffect(() => {
+    const token = localStorage.getItem('token');
+    const userData = localStorage.getItem('user');
+    if (token && userData) {
+      setUser(JSON.parse(userData));
+    }
+  }, []);
 
-  const handleLogin = (email: string, password: string) => {
-    const found = users.find(u => u.email === email && u.password === password);
-    if (found) {
-      setUser({ name: found.name, email: found.email });
-    } else {
-      alert('Invalid email or password');
+  const handleLogin = async (email: string, password: string) => {
+    try {
+      const res = await fetch(`${API_URL}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Login failed');
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      setUser(data.user);
+    } catch (err: any) {
+      alert(err.message);
     }
   };
 
-  const handleSignup = (name: string, email: string, password: string) => {
-    if (users.some(u => u.email === email)) {
-      alert('Email already registered');
-      return;
+  const handleSignup = async (name: string, email: string, password: string) => {
+    try {
+      const res = await fetch(`${API_URL}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Signup failed');
+      // Auto-login after signup
+      await handleLogin(email, password);
+    } catch (err: any) {
+      alert(err.message);
     }
-    setUsers([...users, { name, email, password }]);
-    setUser({ name, email });
   };
 
-  const handleResetPassword = (email: string, newPassword: string) => {
-    const idx = users.findIndex(u => u.email === email);
-    if (idx === -1) {
-      alert('Email not found');
+  const handleResetPassword = async (email: string, newPassword: string) => {
+    try {
+      const res = await fetch(`${API_URL}/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, newPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Reset failed');
+      alert('Password reset successful!');
+      setAuthPage('login');
+      return true;
+    } catch (err: any) {
+      alert(err.message);
       return false;
     }
-    const updated = [...users];
-    updated[idx] = { ...updated[idx], password: newPassword };
-    setUsers(updated);
-    alert('Password reset successful!');
-    setAuthPage('login');
-    return true;
   };
 
   const handleLogout = () => {
     setUser(null);
     setAuthPage('login');
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
   };
 
   if (!user) {
